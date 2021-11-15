@@ -1,0 +1,100 @@
+import cv2
+import os
+
+import tensorflow as tf
+import numpy as np
+import pandas as pd
+from random import shuffle
+from tqdm import tqdm
+from tensorflow.keras import datasets, layers, models
+
+# enter your directories for the image folder below
+TRAIN_DIR = ''
+VALIDATION_DIR = ''
+IMAGE_SIZE = 256
+GENERALISATION_SET_SIZE = 300
+
+# enter your directories for the csv files below
+training_csv = pd.read_csv('')
+test_csv = pd.read_csv('')
+
+training_data = []
+validation_data = []
+
+
+# get class from the csv file for an image
+def get_class(name):
+    fruit_class = training_csv[training_csv.Image_ID
+                               == name.replace('.jpg', '')]['class'].iloc[0]
+
+    if fruit_class == 'fruit_woodiness':
+        return [1, 0, 0]
+    elif fruit_class == 'fruit_brownspot':
+        return [0, 1, 0]
+    elif fruit_class == 'fruit_healthy':
+        return [0, 0, 1]
+
+
+# load each image and pair it with it's class
+for image_name in tqdm(os.listdir(TRAIN_DIR)):
+    class_name = get_class(image_name)
+    path = os.path.join(TRAIN_DIR, image_name)
+    image = cv2.imread(path)
+    image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE))
+    training_data.append([np.array(image), np.array(class_name)])
+
+shuffle(training_data)
+
+training_images = [row[0] for row in training_data]
+training_images = np.asarray(training_images) / 255.0
+training_labels = np.asarray([row[1] for row in training_data])
+
+generalisation_data = training_data[:GENERALISATION_SET_SIZE]
+shuffle(generalisation_data)
+generalisation_images = np.asarray([row[0] for row in generalisation_data])
+generalisation_labels = np.asarray([row[1] for row in generalisation_data])
+
+model = models.Sequential([
+    tf.keras.layers.RandomFlip("horizontal_and_vertical"),
+    tf.keras.layers.RandomRotation(0.4),
+    layers.Conv2D(32, (4, 4), activation='relu', input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3)),
+    layers.AveragePooling2D((2, 2)),
+    layers.Conv2D(64, (4, 4), activation='relu'),
+    layers.AveragePooling2D((2, 2)),
+    layers.Conv2D(64, (4, 4), activation='relu'),
+    layers.AveragePooling2D((2, 2)),
+    layers.Conv2D(64, (4, 4), activation='relu'),
+    layers.AveragePooling2D((2, 2)),
+    layers.Conv2D(64, (4, 4), activation='relu'),
+    layers.AveragePooling2D((2, 2)),
+    layers.Conv2D(32, (4, 4), activation='relu'),
+    layers.Flatten(),
+    layers.Dense(32, activation='relu'),
+    layers.Dense(5, activation='relu'),
+    layers.Dense(4, activation='relu'),
+    layers.Dense(3, activation='relu')
+])
+
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.1),
+              loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+              metrics=['accuracy'])
+
+history = model.fit(training_images, training_labels, epochs=10,
+                    validation_data=(generalisation_images, generalisation_labels))
+
+validation_images = []
+for image_name in tqdm(os.listdir(VALIDATION_DIR)):
+    path = os.path.join(VALIDATION_DIR, image_name)
+    image = cv2.imread(path)
+    image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE))
+    validation_images.append(np.array(image))
+
+shuffle(validation_images)
+
+validation_images = np.asarray(validation_images) / 255.0
+
+predicted_validation_labels = model.predict(validation_images)
+
+test_loss, test_acc = model.evaluate(validation_images, predicted_validation_labels)
+print(test_acc)
+print(test_loss)
